@@ -55,7 +55,9 @@ jobs:
           print("Project SDK versions changed to 36")
 
           PY
-
+      - name: Remove redundant Kotlin plugin
+        run: |
+          sed -i "/org.jetbrains.kotlin.android/d" "$PROJECT_DIR/app/build.gradle"
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:

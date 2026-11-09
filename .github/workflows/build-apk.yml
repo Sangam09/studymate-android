@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'StudyMate-v0.3.0-source.zip'
+      - 'StudyMate-v0.3.1-source.zip'
       - '.github/workflows/build-apk.yml'
 
 jobs:
@@ -18,12 +18,16 @@ jobs:
       - name: Extract StudyMate source
         run: |
           mkdir source
-          unzip StudyMate-v0.3.0-source.zip -d source
+          unzip StudyMate-v0.3.1-source.zip -d source
 
       - name: Locate project
         run: |
           PROJECT_DIR=$(dirname "$(find source -name settings.gradle -print -quit)")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "Could not locate the StudyMate Android project"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -31,33 +35,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Adjust project SDK version
-        run: |
-          python3 - "$PROJECT_DIR/app/build.gradle" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          for key in ("compileSdk", "targetSdk"):
-              s, count = re.subn(
-                  rf'(\b{key}(?:Version)?\s*=?\s*)37\b',
-                  r'\g<1>36',
-                  s,
-                  count=1
-              )
-              if count != 1:
-                  raise SystemExit(f"Could not find {key} version 37")
-
-          p.write_text(s)
-          print("Project SDK versions changed to 36")
-
-          PY
-      - name: Remove redundant Kotlin plugin
-        run: |
-          sed -i "/org.jetbrains.kotlin.android/d" "$PROJECT_DIR/app/build.gradle"
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -71,7 +48,12 @@ jobs:
       - name: Build debug APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug
+          gradle assembleDebug --stacktrace
+
+      - name: Verify APK exists
+        run: |
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK" || { echo "APK was not generated"; exit 1; }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

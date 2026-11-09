@@ -29,6 +29,57 @@ jobs:
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+      - name: Fix Kotlin compiler compatibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          project = Path(os.environ["PROJECT_DIR"])
+          root = project / "build.gradle"
+          app = project / "app" / "build.gradle"
+
+          root_text = root.read_text()
+          root_text, count = re.subn(
+              r"""id\s+['"]com\.android\.application['"]\s+version\s+['"]9\.5\.0['"]\s+apply\s+false""",
+              "id 'com.android.application' version '8.13.2' apply false\n"
+              "    id 'org.jetbrains.kotlin.android' version '2.4.0' apply false",
+              root_text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Expected AGP 9.5.0 declaration not found.")
+          root.write_text(root_text)
+
+          app_text = app.read_text()
+          if "id 'org.jetbrains.kotlin.android'" not in app_text:
+              app_text, count = re.subn(
+                  r"""(plugins\s*\{\s*id\s+['"]com\.android\.application['"]\s*)\}""",
+                  r"\1    id 'org.jetbrains.kotlin.android'\n}",
+                  app_text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("Could not safely update app plugins block.")
+
+          if "kotlin {" not in app_text:
+              marker = re.search(r"(?m)^dependencies\s*\{", app_text)
+              if not marker:
+                  raise SystemExit("Could not find dependencies block.")
+              config = (
+                  "kotlin {\n"
+                  "    compilerOptions {\n"
+                  "        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17\n"
+                  "    }\n"
+                  "}\n\n"
+              )
+              app_text = app_text[:marker.start()] + config + app_text[marker.start():]
+
+          app.write_text(app_text)
+          print("Kotlin compatibility configuration applied.")
+          PY
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -43,7 +94,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.6.0'
+          gradle-version: '8.13'
 
       - name: Build debug APK
         run: |

@@ -23,11 +23,14 @@ jobs:
       - name: Locate project
         run: |
           PROJECT_DIR=$(dirname "$(find source -name settings.gradle -print -quit)")
+
           if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
             echo "Could not locate the StudyMate Android project"
             exit 1
           fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project at: $PROJECT_DIR"
 
       - name: Fix Kotlin compiler compatibility
         run: |
@@ -41,32 +44,39 @@ jobs:
           app = project / "app" / "build.gradle"
 
           root_text = root.read_text()
+
           root_text, count = re.subn(
               r"""id\s+['"]com\.android\.application['"]\s+version\s+['"]9\.5\.0['"]\s+apply\s+false""",
               "id 'com.android.application' version '8.13.2' apply false\n"
               "    id 'org.jetbrains.kotlin.android' version '2.4.0' apply false",
               root_text,
-              count=1,
+              count=1
           )
+
           if count != 1:
-              raise SystemExit("Expected AGP 9.5.0 declaration not found.")
+              raise SystemExit("Could not find expected Android Gradle Plugin 9.5.0 declaration.")
+
           root.write_text(root_text)
 
           app_text = app.read_text()
+
           if "id 'org.jetbrains.kotlin.android'" not in app_text:
               app_text, count = re.subn(
                   r"""(plugins\s*\{\s*id\s+['"]com\.android\.application['"]\s*)\}""",
                   r"\1    id 'org.jetbrains.kotlin.android'\n}",
                   app_text,
-                  count=1,
+                  count=1
               )
+
               if count != 1:
                   raise SystemExit("Could not safely update app plugins block.")
 
           if "kotlin {" not in app_text:
               marker = re.search(r"(?m)^dependencies\s*\{", app_text)
+
               if not marker:
                   raise SystemExit("Could not find dependencies block.")
+
               config = (
                   "kotlin {\n"
                   "    compilerOptions {\n"
@@ -74,10 +84,15 @@ jobs:
                   "    }\n"
                   "}\n\n"
               )
+
               app_text = app_text[:marker.start()] + config + app_text[marker.start():]
 
           app.write_text(app_text)
+
           print("Kotlin compatibility configuration applied.")
+          print("Android Gradle Plugin: 8.13.2")
+          print("Kotlin: 2.4.0")
+          print("JVM target: 17")
           PY
 
       - name: Set up Java
@@ -91,10 +106,20 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
+      - name: Install Gradle 8.13 directly
+        run: |
+          curl --fail --location \
+            --retry 5 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            https://downloads.gradle.org/distributions/gradle-8.13-bin.zip \
+            -o "$RUNNER_TEMP/gradle-8.13-bin.zip"
+
+          unzip -q "$RUNNER_TEMP/gradle-8.13-bin.zip" -d "$RUNNER_TEMP"
+
+          echo "$RUNNER_TEMP/gradle-8.13/bin" >> "$GITHUB_PATH"
+
+          "$RUNNER_TEMP/gradle-8.13/bin/gradle" --version
 
       - name: Build debug APK
         run: |
@@ -104,7 +129,14 @@ jobs:
       - name: Verify APK exists
         run: |
           APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK" || { echo "APK was not generated"; exit 1; }
+
+          if [ ! -f "$APK" ]; then
+            echo "APK was not generated."
+            exit 1
+          fi
+
+          echo "APK successfully generated."
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

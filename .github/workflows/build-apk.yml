@@ -54,7 +54,7 @@ jobs:
           )
 
           if count != 1:
-              raise SystemExit("Could not find expected Android Gradle Plugin 9.5.0 declaration.")
+              raise SystemExit("Could not find expected Android Gradle Plugin declaration.")
 
           root.write_text(root_text)
 
@@ -69,7 +69,7 @@ jobs:
               )
 
               if count != 1:
-                  raise SystemExit("Could not safely update app plugins block.")
+                  raise SystemExit("Could not update app plugins block.")
 
           if "kotlin {" not in app_text:
               marker = re.search(r"(?m)^dependencies\s*\{", app_text)
@@ -90,9 +90,39 @@ jobs:
           app.write_text(app_text)
 
           print("Kotlin compatibility configuration applied.")
-          print("Android Gradle Plugin: 8.13.2")
-          print("Kotlin: 2.4.0")
-          print("JVM target: 17")
+          PY
+
+      - name: Fix quiz answer compilation error
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          java = (
+              Path(os.environ["PROJECT_DIR"])
+              / "app/src/main/java/com/studymate/local/ui/StudyToolsActivity.java"
+          )
+
+          source = java.read_text()
+
+          old = 'int correct=q.getInt("answer");'
+          new = 'int correct=q.optInt("answer", -1);'
+
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif new not in source:
+              raise SystemExit("Could not find the quiz answer code to patch.")
+
+          check = 'if(correct<0||correct>=labels.length){toast("This question has an invalid answer key.");return;}'
+          target = 'boolean ok=selected[0]==correct;'
+
+          if check not in source:
+              if target not in source:
+                  raise SystemExit("Could not find the quiz answer validation location.")
+              source = source.replace(target, check + target, 1)
+
+          java.write_text(source)
+          print("Quiz answer compilation fix applied.")
           PY
 
       - name: Set up Java
